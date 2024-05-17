@@ -4,16 +4,23 @@ import com.mojang.datafixers.DataFixer;
 import net.fabricmc.api.ModInitializer;
 import net.minecraft.SharedConstants;
 import net.minecraft.client.Minecraft;
-import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.nbt.CompoundTag;
+import net.minecraft.nbt.NbtAccounter;
 import net.minecraft.nbt.NbtIo;
+import net.minecraft.nbt.Tag;
 import net.minecraft.util.datafix.DataFixTypes;
-import net.minecraft.world.level.levelgen.structure.templatesystem.StructureTemplate;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.io.File;
 import java.nio.file.Path;
 
 public class StructureFixer implements ModInitializer {
+    public static final Logger LOGGER = LogManager.getLogger("StructureFixer");
+
+    private static int numFilesUpdated = 0;
+    private static int numFilesFailed = 0;
+
     @Override
     public void onInitialize() {
         DataFixer fixer = Minecraft.getInstance().getFixerUpper();
@@ -24,7 +31,9 @@ public class StructureFixer implements ModInitializer {
         file.mkdirs();
         output.mkdirs();
 
+        LOGGER.info("Updating structures in {}", outPath);
         updateAllInDirectory(file, "", outPath, fixer);
+        LOGGER.info("{} files successfully updated, {} errors encountered.", numFilesUpdated, numFilesFailed);
     }
 
     private static void updateAllInDirectory(File directory, String path, Path output, DataFixer fixer) {
@@ -46,38 +55,38 @@ public class StructureFixer implements ModInitializer {
         String absolutePath = file.getAbsolutePath();
         String name = file.getName();
 
-        System.out.println("Trying to update " + absolutePath);
+        LOGGER.debug("Trying to update {}", absolutePath);
 
         if (file.isDirectory()) {
-            System.out.println("Skipping " + absolutePath + " because it is a directory");
+            numFilesFailed++;
+            LOGGER.error("Skipping {} because it is a directory", absolutePath);
             return;
         }
 
         try {
-            CompoundTag tag = NbtIo.readCompressed(file);
+            CompoundTag currentTag = NbtIo.readCompressed(file.toPath(), NbtAccounter.unlimitedHeap());
 
-            if (!tag.contains("DataVersion", 99)) {
-                tag.putInt("DataVersion", 500);
+            if (!currentTag.contains("DataVersion", Tag.TAG_ANY_NUMERIC)) {
+                currentTag.putInt("DataVersion", 500);
             }
 
-            int currentDataVersion = tag.getInt("DataVersion");
-            int requiredMinimumDataVersion = SharedConstants.getCurrentVersion().getDataVersion().getVersion();
-            if (currentDataVersion < requiredMinimumDataVersion) {
-                CompoundTag fixedTag = DataFixTypes.STRUCTURE.update(fixer, tag, currentDataVersion, SharedConstants.getCurrentVersion().getDataVersion().getVersion());
+            int currentDataVersion = currentTag.getInt("DataVersion");
+            int newDataVersion = SharedConstants.getCurrentVersion().getDataVersion().getVersion();
 
-                // Create a StructureTemplate from the fixed tag and save it to NBT
-                StructureTemplate structureTemplate = new StructureTemplate();
-                structureTemplate.load(BuiltInRegistries.BLOCK.asLookup(), fixedTag);
-                CompoundTag resultTag = structureTemplate.save(new CompoundTag());
+            if (currentDataVersion < newDataVersion) {
+                currentTag = DataFixTypes.STRUCTURE.update(fixer, currentTag, currentDataVersion, newDataVersion);
+                currentTag.putInt("DataVersion", newDataVersion);
 
                 // Write the new NBT to file
                 outDir.toFile().mkdirs();
-                NbtIo.writeCompressed(resultTag, outDir.resolve(name).toFile());
+                NbtIo.writeCompressed(currentTag, outDir.resolve(name));
 
-                System.out.println("Updated " + absolutePath + " from version " + tag.getInt("DataVersion") + " to " + resultTag.getInt("DataVersion"));
+                numFilesUpdated++;
+                LOGGER.debug("Updated {} from version {} to {}", absolutePath, currentDataVersion, currentTag.getInt("DataVersion"));
             }
         } catch (Exception e) {
-            System.out.println("Could not update " + absolutePath +": " + e.getMessage());
+            numFilesFailed++;
+            LOGGER.error("Could not update {}: {}", absolutePath, e.getMessage());
         }
     }
 }
