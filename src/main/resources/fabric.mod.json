@@ -12,11 +12,8 @@
   "icon": "assets/structure-fixer/icon.png",
   "environment": "*",
   "entrypoints": {
-    "client": [
-      "supercoder79.structurefixer.client.StructureFixerClient"
-    ],
     "main": [
-      "supercoder79.structurefixer.StructureFixer"
+      "com.yungnickyoung.minecraft.structurefixer.StructureFixer"
     ]
   },
   "mixins": [
